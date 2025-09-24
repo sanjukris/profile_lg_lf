@@ -1,12 +1,11 @@
 from __future__ import annotations
 import os
 import time
+import asyncio
 from typing import Any, Dict
 
-from app.telemetry.tracing import get_current_trace
-
 # ------------------------------------------------------------------
-# Config (still here, though mocks don't use them)
+# Config (mocks)
 # ------------------------------------------------------------------
 API_BASE = os.getenv("PROFILE_API_BASE", "https://uat.api.securecloud.tbd.com").rstrip("/")
 API_KEY = os.getenv("PROFILE_API_KEY", "tbd")
@@ -14,15 +13,12 @@ BASIC_AUTH = os.getenv("PROFILE_BASIC_AUTH", "tbd")
 SCOPE = os.getenv("PROFILE_SCOPE", "public")
 PREF_USERNM = os.getenv("PROFILE_USERNM", "test")
 
-# Optional local delay for profiling (ms). Default 0.
+# Optional simulated latency (milliseconds). Default 0.
 MOCK_DELAY_MS = int(os.getenv("MOCK_DELAY_MS", "0"))
 
-def _maybe_sleep():
+async def _maybe_sleep() -> None:
     if MOCK_DELAY_MS > 0:
-        # simulate network latency deterministically
-        end = time.perf_counter() + (MOCK_DELAY_MS / 1000.0)
-        while time.perf_counter() < end:
-            pass
+        await asyncio.sleep(MOCK_DELAY_MS / 1000.0)
 
 # ------------------------------------------------------------------
 # Mock payloads
@@ -64,145 +60,84 @@ PREFS = {
 }
 
 # ------------------------------------------------------------------
-# Synchronous "HTTP" helpers (mocked)
+# Async "HTTP" helpers (mocked)
 # ------------------------------------------------------------------
-def _get_access_token() -> str:
-    client = get_current_trace()
-    span = client.start_span(name="access_token") if client else None
-
+async def _get_access_token_async() -> str:
     t0 = time.perf_counter()
-    _maybe_sleep()
+    await _maybe_sleep()
     token = ACCESS["access_token"]
-    dt = (time.perf_counter() - t0) * 1000
-    print(f"[timing] access_token: {dt:.1f} ms")
-
-    if span:
-        try:
-            span.update(output={"status": "ok", "ms": round(dt, 1)})
-            span.end()
-        except Exception:
-            pass
-
+    print(f"[timing] access_token: {(time.perf_counter() - t0)*1000:.1f} ms")
     return token
 
-
-def _get_email(member_id: str, bearer: str) -> Dict[str, Any]:
-    client = get_current_trace()
-    span = client.start_span(name="get_email", input={"member_id": member_id}) if client else None
-
+async def _get_email_async(member_id: str, bearer: str) -> Dict[str, Any]:
     t0 = time.perf_counter()
-    _maybe_sleep()
-    out = EMAIL
-    dt = (time.perf_counter() - t0) * 1000
-    print(f"[timing] GET email(member_id={member_id}): {dt:.1f} ms")
+    await _maybe_sleep()
+    print(f"[timing] GET email(member_id={member_id}): {(time.perf_counter() - t0)*1000:.1f} ms")
+    return EMAIL
 
-    if span:
-        try:
-            span.update(output={"status": "ok", "ms": round(dt, 1)})
-            span.end()
-        except Exception:
-            pass
-    return out
-
-
-def _get_address(member_id: str, bearer: str) -> Dict[str, Any]:
-    client = get_current_trace()
-    span = client.start_span(name="get_address", input={"member_id": member_id}) if client else None
-
+async def _get_address_async(member_id: str, bearer: str) -> Dict[str, Any]:
     t0 = time.perf_counter()
-    _maybe_sleep()
-    out = ADDR
-    dt = (time.perf_counter() - t0) * 1000
-    print(f"[timing] GET address(member_id={member_id}): {dt:.1f} ms")
+    await _maybe_sleep()
+    print(f"[timing] GET address(member_id={member_id}): {(time.perf_counter() - t0)*1000:.1f} ms")
+    return ADDR
 
-    if span:
-        try:
-            span.update(output={"status": "ok", "ms": round(dt, 1)})
-            span.end()
-        except Exception:
-            pass
-    return out
-
-
-def _get_preferences(member_id: str, bearer: str) -> Dict[str, Any]:
-    client = get_current_trace()
-    span = client.start_span(name="get_preferences", input={"member_id": member_id}) if client else None
-
+async def _get_preferences_async(member_id: str, bearer: str) -> Dict[str, Any]:
     t0 = time.perf_counter()
-    _maybe_sleep()
-    out = PREFS
-    dt = (time.perf_counter() - t0) * 1000
-    print(f"[timing] GET preferences(member_id={member_id}): {dt:.1f} ms")
-
-    if span:
-        try:
-            span.update(output={"status": "ok", "ms": round(dt, 1)})
-            span.end()
-        except Exception:
-            pass
-    return out
+    await _maybe_sleep()
+    print(f"[timing] GET preferences(member_id={member_id}): {(time.perf_counter() - t0)*1000:.1f} ms")
+    return PREFS
 
 # ------------------------------------------------------------------
-# Public tool-like functions (sync & event-loop safe)
+# Public async tool-like functions (use asyncio.gather for concurrency)
 # ------------------------------------------------------------------
-def fetch_email_and_address(*, member_id: str) -> Dict[str, Any]:
-    """
-    Fetch the member's primary email and address (mocked).
-    Synchronous & safe to call from inside an active asyncio loop.
-    """
-    client = get_current_trace()
-    tool_span = client.start_span(name="tool.fetch_email_and_address", input={"member_id": member_id}) if client else None
-
+async def fetch_email_and_address_async(*, member_id: str) -> Dict[str, Any]:
     t0 = time.perf_counter()
-    token = _get_access_token()
+    token = await _get_access_token_async()
     t1 = time.perf_counter()
-    email_json = _get_email(member_id, token)
-    t2 = time.perf_counter()
-    address_json = _get_address(member_id, token)
+    start = time.perf_counter()
+    email_json, address_json = await asyncio.gather(
+        _get_email_async(member_id, token),
+        _get_address_async(member_id, token),
+    )
     t3 = time.perf_counter()
-
     print(
-        "[timing] tool.fetch_email_and_address: "
+        "[timing] tool.fetch_email_and_address(async): "
         f"token={(t1 - t0)*1000:.1f} ms, "
-        f"email={(t2 - t1)*1000:.1f} ms, "
-        f"address={(t3 - t2)*1000:.1f} ms, "
+        f"await_both={(t3 - start)*1000:.1f} ms, "
         f"total={(t3 - t0)*1000:.1f} ms"
     )
-    if tool_span:
-        try:
-            tool_span.update(output={"status": "ok", "ms": round((t3 - t0)*1000, 1)})
-            tool_span.end()
-        except Exception:
-            pass
-
     return {"email_json": email_json, "address_json": address_json}
 
-
-def fetch_contact_preference(*, member_id: str) -> Dict[str, Any]:
-    """
-    Fetch contact preferences for the member (mocked).
-    Synchronous & safe to call from inside an active asyncio loop.
-    """
-    client = get_current_trace()
-    tool_span = client.start_span(name="tool.fetch_contact_preference", input={"member_id": member_id}) if client else None
-
+async def fetch_contact_preference_async(*, member_id: str) -> Dict[str, Any]:
     t0 = time.perf_counter()
-    token = _get_access_token()
+    token = await _get_access_token_async()
     t1 = time.perf_counter()
-    prefs = _get_preferences(member_id, token)
+    prefs = await _get_preferences_async(member_id, token)
     t2 = time.perf_counter()
-
     print(
-        "[timing] tool.fetch_contact_preference: "
+        "[timing] tool.fetch_contact_preference(async): "
         f"token={(t1 - t0)*1000:.1f} ms, "
         f"prefs={(t2 - t1)*1000:.1f} ms, "
         f"total={(t2 - t0)*1000:.1f} ms"
     )
-    if tool_span:
-        try:
-            tool_span.update(output={"status": "ok", "ms": round((t2 - t0)*1000, 1)})
-            tool_span.end()
-        except Exception:
-            pass
-
     return {"preferences_json": prefs}
+
+# ------------------------------------------------------------------
+# Backward-compatible sync wrappers (for run_demo.py and CLI use)
+# ------------------------------------------------------------------
+def _in_running_loop() -> bool:
+    try:
+        loop = asyncio.get_running_loop()
+        return loop.is_running()
+    except RuntimeError:
+        return False
+
+def fetch_email_and_address(*, member_id: str) -> Dict[str, Any]:
+    if _in_running_loop():
+        raise RuntimeError("Use: await fetch_email_and_address_async(...) inside async contexts")
+    return asyncio.run(fetch_email_and_address_async(member_id=member_id))
+
+def fetch_contact_preference(*, member_id: str) -> Dict[str, Any]:
+    if _in_running_loop():
+        raise RuntimeError("Use: await fetch_contact_preference_async(...) inside async contexts")
+    return asyncio.run(fetch_contact_preference_async(member_id=member_id))

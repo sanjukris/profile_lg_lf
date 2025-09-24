@@ -6,3 +6,5 @@ export INTENT_CLASSIFIER=llm
 python run_demo.py
 
 python -m uvicorn --app-dir /path/to/profile_aws app.server.main:app --port 9000
+
+python app/client/a2a_client.py

@@ -36,10 +36,10 @@ async def main():
         )
 
         # Preferences
-        # await send_message(
-        #     client,
-        #     "show my contact preferences for member 378477398",
-        # )
+        await send_message(
+            client,
+            "show my contact preferences for member 378477398",
+        )
 
 
 if __name__ == "__main__":
